@@ -151,7 +151,7 @@ class _HomePageState extends State<HomePage> {
             child: RichText(
                 text: TextSpan(children: <TextSpan>[
               TextSpan(
-                  text: 'chaway za3im rghaya',
+                  text: '',
                   style: Theme.of(context)
                       .textTheme
                       .titleMedium!

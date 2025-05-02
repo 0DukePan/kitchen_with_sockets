@@ -165,8 +165,51 @@ class _KitchenScreenState extends State<KitchenScreen> {
     }
  }
 
+  // --- Show Nicer Success Notification ---
+  void _showSuccessNotification(String orderIdentifier) {
+     if (!mounted) return; // Check if the widget is still active
+
+     ScaffoldMessenger.of(context).showSnackBar(
+       SnackBar(
+         content: Row(
+           children: [
+             const Icon(Icons.check_circle_outline_rounded, color: Colors.white),
+             const SizedBox(width: 12),
+             Expanded(
+               child: Text(
+                 'Order #$orderIdentifier Marked as Ready!',
+                 style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 15),
+                 overflow: TextOverflow.ellipsis,
+               ),
+             ),
+           ],
+         ),
+         backgroundColor: _orderGreen, // Use the theme's green color (make sure _orderGreen is defined in your state)
+         behavior: SnackBarBehavior.floating, // Make it float
+         shape: RoundedRectangleBorder(
+           borderRadius: BorderRadius.circular(12.0), // Rounded corners
+         ),
+         margin: EdgeInsets.only( // Position near top-center
+           bottom: MediaQuery.of(context).size.height - 120, // Adjust vertical position from bottom
+           left: MediaQuery.of(context).size.width * 0.2, // Indent from left
+           right: MediaQuery.of(context).size.width * 0.2, // Indent from right
+         ),
+         duration: const Duration(seconds: 3), // Slightly longer duration
+         elevation: 6.0, // Add some elevation
+       ),
+     );
+  }
+  // --- End Show Nicer Success Notification ---
+
   // --- New method to handle marking order as ready ---
   Future<void> _markOrderReadyForPickup(String orderId) async {
+    // Find order number for display in notification
+    final order = _socketService.orders.firstWhere(
+      (o) => o.id == orderId,
+      orElse: () => Order(id: orderId, orderNumber: orderId, items: [], createdAt: DateTime.now(), orderType: 'N/A', tableId: 'N/A') // Fallback if order vanished
+    );
+    final String displayOrderId = order.orderNumber;
+
     if (_updatingOrders.contains(orderId)) {
       log('Order $orderId is already being updated.');
       return; // Prevent double calls
@@ -180,10 +223,11 @@ class _KitchenScreenState extends State<KitchenScreen> {
       final success = await _apiService.updateOrderStatus(orderId, 'ready_for_pickup');
       if (success) {
         log('Successfully called API to mark order $orderId as ready_for_pickup.');
-        // OPTIONAL: Show a success snackbar or toast
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Order #$orderId marked as ready.'), duration: Duration(seconds: 2)),
-        );
+        
+        // --- Show the NEW, nicer notification ---
+        _showSuccessNotification(displayOrderId);
+        // ----------------------------------------
+        
         // The SocketService should receive the 'order_status_updated' event
         // and trigger _onOrdersChanged, which will remove the order from the list.
         // No need to manually remove it here if the socket event works correctly.
@@ -261,7 +305,7 @@ class _KitchenScreenState extends State<KitchenScreen> {
            child: RichText(
                text: TextSpan(children: <TextSpan>[
              TextSpan(
-                 text: 'chaway za3im rghaya', // Hardcoded name, consider using AppConfig
+                 text: '', // Hardcoded name, consider using AppConfig
                  style: Theme.of(context)
                      .textTheme
                      .titleMedium! // Use theme's titleMedium

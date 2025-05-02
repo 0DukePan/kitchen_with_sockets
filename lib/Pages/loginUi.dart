@@ -34,7 +34,7 @@ class _LoginState extends State<Login> {
                     ),
                     FadedScaleAnimation(
                       child: Text(
-                        "chaway za3im rghaya",
+                        "",
                         style: Theme.of(context)
                             .textTheme
                             .bodyLarge!

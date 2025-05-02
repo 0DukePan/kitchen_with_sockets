@@ -41,58 +41,58 @@ class _PastOrdersState extends State<PastOrders> {
     final Color headerSubTextColor = Colors.white.withOpacity(0.85);
 
     return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
         backgroundColor: Theme.of(context).scaffoldBackgroundColor,
         elevation: 0,
         titleSpacing: 12.0,
-        title: FadedScaleAnimation(
-          child: RichText(
-              text: TextSpan(children: <TextSpan>[
-            TextSpan(
-                text: 'chaway za3im rghaya',
-                style: Theme.of(context)
-                    .textTheme
-                    .titleMedium!
+          title: FadedScaleAnimation(
+            child: RichText(
+                text: TextSpan(children: <TextSpan>[
+              TextSpan(
+                  text: '',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium!
                     .copyWith(
                         letterSpacing: 1,
                         fontWeight: FontWeight.bold,
                         color: appBarTitleColor)
                 ),
-            TextSpan(
-                text: 'KITCHEN',
-                style: Theme.of(context).textTheme.titleMedium!.copyWith(
-                    color: Theme.of(context).primaryColor,
-                    letterSpacing: 1,
-                    fontWeight: FontWeight.bold)),
-          ])),
+              TextSpan(
+                  text: 'KITCHEN',
+                  style: Theme.of(context).textTheme.titleMedium!.copyWith(
+                      color: Theme.of(context).primaryColor,
+                      letterSpacing: 1,
+                      fontWeight: FontWeight.bold)),
+            ])),
           fadeDuration: const Duration(milliseconds: 400),
           scaleDuration: const Duration(milliseconds: 400),
-        ),
-        actions: [
-          Padding(
+          ),
+          actions: [
+            Padding(
             padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-            child: FadedScaleAnimation(
-              child: CustomButton(
+              child: FadedScaleAnimation(
+                child: CustomButton(
                   padding: const EdgeInsets.symmetric(horizontal: 18.0, vertical: 10),
                   leading: const Icon(Icons.close, color: Colors.white, size: 16),
-                  title: Text(
+                    title: Text(
                     'Close',
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyLarge!
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyLarge!
                         .copyWith(fontWeight: FontWeight.bold, fontSize: 14),
-                  ),
-                  onTap: () {
+                    ),
+                    onTap: () {
                     Navigator.pop(context);
-                  }),
+                    }),
               fadeDuration: const Duration(milliseconds: 400),
               scaleDuration: const Duration(milliseconds: 400),
-            ),
-          )
-        ],
-      ),
-      body: FadedSlideAnimation(
+              ),
+            )
+          ],
+        ),
+        body: FadedSlideAnimation(
           beginOffset: const Offset(0.0, 0.3),
           endOffset: Offset.zero,
           slideCurve: Curves.linearToEaseOut,
@@ -121,11 +121,11 @@ class _PastOrdersState extends State<PastOrders> {
                   final List<Order> completedOrders = snapshot.data!;
                   return SingleChildScrollView(
                     padding: const EdgeInsets.all(10.0),
-                    child: StaggeredGrid.count(
-                      crossAxisCount: 4,
+              child: StaggeredGrid.count(
+                crossAxisCount: 4,
                       mainAxisSpacing: 10.0,
                       crossAxisSpacing: 10.0,
-                      children: List.generate(
+                children: List.generate(
                         completedOrders.length,
                         (int index) {
                           final order = completedOrders[index];
@@ -180,51 +180,72 @@ class _PastOrdersState extends State<PastOrders> {
           decoration: TextDecoration.lineThrough,
         );
 
-    return ClipPath(
-      clipper: CustomClipPath(),
-      child: FadedScaleAnimation(
-        child: Container(
-          color: Theme.of(context).scaffoldBackgroundColor,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Container(
-                color: headerBackgroundColor,
-                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(order.orderType, style: headerTextStyle),
-                        const SizedBox(height: 4),
-                        Text(order.orderNumber, style: headerSubTextStyle),
-                      ],
-                    ),
-                    Text(completionTimeFormatted, style: headerSubTextStyle.copyWith(fontSize: 12)),
-                  ],
-                ),
-              ),
-              ListView.builder(
+                    return ClipPath(
+                      clipper: CustomClipPath(),
+                      child: FadedScaleAnimation(
+                        child: Container(
+                          color: Theme.of(context).scaffoldBackgroundColor,
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Container(
+                                color: headerBackgroundColor,
+                                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                                child: Row(
+                                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    Flexible(
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            order.orderType,
+                                            style: headerTextStyle,
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                          ),
+                                          const SizedBox(height: 4),
+                                          Text(
+                                            order.orderNumber,
+                                            style: headerSubTextStyle,
+                                            overflow: TextOverflow.ellipsis,
+                                            maxLines: 1,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(width: 8),
+                                    Flexible(
+                                      child: Text(
+                                        completionTimeFormatted,
+                                        style: headerSubTextStyle.copyWith(fontSize: 12),
+                                        textAlign: TextAlign.end,
+                                        overflow: TextOverflow.ellipsis,
+                                        maxLines: 1,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              ListView.builder(
                   physics: const NeverScrollableScrollPhysics(),
-                  shrinkWrap: true,
+                                  shrinkWrap: true,
                   padding: const EdgeInsets.symmetric(vertical: 4.0),
                   itemCount: order.items.length,
                   itemBuilder: (context, itemIndex) {
                     if (itemIndex >= order.items.length) return const SizedBox.shrink();
                     final item = order.items[itemIndex];
 
-                    return Padding(
+                                    return Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                      child: Column(
+                                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Row(
                             crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
+                                        children: [
                               Text('${item.quantity} ', style: itemQuantityStyle),
                               Expanded(child: Text(item.name, style: itemTextStyle)),
                             ],
@@ -239,9 +260,9 @@ class _PastOrdersState extends State<PastOrders> {
                             ),
                         ],
                       ),
-                    );
+                  );
                   }),
-            ],
+          ],
           ),
         ),
         fadeDuration: const Duration(milliseconds: 400),
