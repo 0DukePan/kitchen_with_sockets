@@ -32,15 +32,19 @@ class SocketService with ChangeNotifier {
       });
 
       _socket!.on('new_kitchen_order', (data) {
-        debugPrint('New kitchen order received: $data');
+        debugPrint('New kitchen order received');
         _handleNewOrder(data);
       });
 
-      // Optional: Handle event from backend confirming registration
+      // Handle initial list of active orders sent upon registration
+      _socket!.on('initial_active_orders', (data) {
+        debugPrint('Received initial active orders');
+        _handleInitialOrders(data);
+      });
+
       _socket!.on('kitchen_registered', (data) {
-         debugPrint('Kitchen registration confirmed by server.');
-         // You could potentially receive initial pending orders here
-         // if (data is Map && data['activeOrders'] is List) { ... }
+        debugPrint('Kitchen registration confirmed by server.');
+        // Confirmation only, no order data expected here anymore
       });
 
       _socket!.onDisconnect((_) {
@@ -76,20 +80,50 @@ class SocketService with ChangeNotifier {
   }
 
   void _handleNewOrder(dynamic orderData) {
-    // Assuming orderData is the complete order object (Map<String, dynamic>).
-    // You should ideally parse this into a structured Order model.
     try {
       if (orderData is Map<String, dynamic>) {
         final newOrder = Order.fromJson(orderData);
-        _orders.insert(0, newOrder); // Add new Order object to the top
-        // Notify listeners (like the KitchenScreen) that the orders list has changed
-        notifyListeners();
+        // Avoid adding duplicates if the order somehow already exists
+        if (!_orders.any((order) => order.id == newOrder.id)) {
+          _orders.insert(0, newOrder); // Add new order to the top
+          notifyListeners();
+          debugPrint('Added new order ${newOrder.id} to list.');
+        } else {
+          debugPrint('Received duplicate new order ${newOrder.id}, ignored.');
+        }
       } else {
-         debugPrint('Received order data is not in expected format (Map<String, dynamic>).');
+        debugPrint('Received new order data is not in expected format.');
       }
     } catch (e) {
-      debugPrint('Error parsing new order: $e');
-      debugPrint('Received data: $orderData');
+      debugPrint('Error parsing new order: $e\nReceived data: $orderData');
+    }
+  }
+
+  // Handler for the initial list of active orders
+  void _handleInitialOrders(dynamic data) {
+    try {
+      if (data is List) {
+        final List<Order> initialOrders = data
+            .map((orderData) {
+              try {
+                return Order.fromJson(orderData as Map<String, dynamic>);
+              } catch (e) {
+                debugPrint('Error parsing an initial order: $e\nData: $orderData');
+                return null; // Return null for invalid orders
+              }
+            })
+            .whereType<Order>() // Filter out any nulls from parsing errors
+            .toList();
+
+        // Replace the current list with the initial list
+        _orders = initialOrders;
+        notifyListeners();
+        debugPrint('Processed ${initialOrders.length} initial active orders.');
+      } else {
+        debugPrint('Received initial orders data is not a List.');
+      }
+    } catch (e) {
+      debugPrint('Error handling initial orders: $e\nReceived data: $data');
     }
   }
 
