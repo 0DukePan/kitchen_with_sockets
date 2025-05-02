@@ -9,6 +9,7 @@ import 'dart:async'; // Import async library for Timer
 import 'package:hungerz_kitchen/Theme/colors.dart' as theme_colors; // Import colors with prefix
 import 'package:hungerz_kitchen/Components/custom_circular_button.dart'; // Import CustomButton
 import 'package:hungerz_kitchen/Routes/routes.dart'; // Import PageRoutes
+import 'package:hungerz_kitchen/Services/api_service.dart'; // <-- Import ApiService
 
 // Custom Clipper from home.dart (assuming it's needed for the card shape)
 class CustomClipPath extends CustomClipper<Path> {
@@ -44,8 +45,10 @@ class KitchenScreen extends StatefulWidget {
 
 class _KitchenScreenState extends State<KitchenScreen> {
   late final SocketService _socketService;
+  late final ApiService _apiService; // <-- Add ApiService instance
   Map<String, int> _deliveredItemsCount = {};
   Timer? _timer; // Add a Timer variable
+  final Set<String> _updatingOrders = {}; // Keep track of orders being updated
 
   // --- Timer and Color Configuration ---
   // Define time thresholds (adjust these values based on kitchen needs)
@@ -66,6 +69,7 @@ class _KitchenScreenState extends State<KitchenScreen> {
     super.initState();
     // Consider using a Provider or GetIt for service access if needed elsewhere
     _socketService = SocketService();
+    _apiService = ApiService(); // <-- Initialize ApiService
     _socketService.addListener(_onOrdersChanged);
     _initializeDeliveredCounts();
     _startTimer();
@@ -127,9 +131,12 @@ class _KitchenScreenState extends State<KitchenScreen> {
 
             // Check if all items in this order are delivered
             if (_deliveredItemsCount[orderId] == _socketService.orders[orderIndex].items.length) {
-              log('Order $orderId completed.');
+              log('Order $orderId completed (all items marked delivered locally).');
+              // ----- Instead of removing locally, now we call the API to update status -----
+              // _markOrderReadyForPickup(orderId); // <-- Call the new API method
+              // ---------------------------------------------------------------------------
               // Add a slight delay before removing the card for visual feedback
-              Future.delayed(const Duration(milliseconds: 500), () {
+              /* Future.delayed(const Duration(milliseconds: 500), () {
                 if (mounted) {
                    setState(() {
                      // Remove order safely by index
@@ -144,8 +151,8 @@ class _KitchenScreenState extends State<KitchenScreen> {
                      }
                    });
                 }
-              });
-              // TODO: Optionally notify backend that order is ready?
+              }); */
+              // TODO: Optionally notify backend that order is ready? // <-- Now handled by API call
               // _socketService.socket?.emit('order_ready', { 'orderId': orderId });
             }
           });
@@ -157,6 +164,55 @@ class _KitchenScreenState extends State<KitchenScreen> {
       log('Error marking item delivered: Order ID $orderId not found');
     }
  }
+
+  // --- New method to handle marking order as ready ---
+  Future<void> _markOrderReadyForPickup(String orderId) async {
+    if (_updatingOrders.contains(orderId)) {
+      log('Order $orderId is already being updated.');
+      return; // Prevent double calls
+    }
+
+    setState(() {
+      _updatingOrders.add(orderId); // Mark as updating
+    });
+
+    try {
+      final success = await _apiService.updateOrderStatus(orderId, 'ready_for_pickup');
+      if (success) {
+        log('Successfully called API to mark order $orderId as ready_for_pickup.');
+        // OPTIONAL: Show a success snackbar or toast
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Order #$orderId marked as ready.'), duration: Duration(seconds: 2)),
+        );
+        // The SocketService should receive the 'order_status_updated' event
+        // and trigger _onOrdersChanged, which will remove the order from the list.
+        // No need to manually remove it here if the socket event works correctly.
+      } else {
+        // API call returned false (shouldn't happen based on current ApiService logic)
+        log('API call to update order $orderId status returned false.');
+        _showErrorSnackBar('Failed to update order status.');
+      }
+    } catch (e) {
+      log('Error calling API to update order $orderId status: $e');
+      _showErrorSnackBar('Error updating order: ${e.toString()}');
+    } finally {
+      // Ensure we always remove the order from the updating set
+      if (mounted) {
+         setState(() {
+           _updatingOrders.remove(orderId);
+         });
+      }
+    }
+  }
+
+  void _showErrorSnackBar(String message) {
+     if (mounted) {
+       ScaffoldMessenger.of(context).showSnackBar(
+         SnackBar(content: Text(message), backgroundColor: Colors.red),
+       );
+     }
+  }
+  // -----------------------------------------------------
 
   // Helper function to format duration as MM:SS
   String _formatDuration(Duration duration) {
@@ -280,15 +336,24 @@ class _KitchenScreenState extends State<KitchenScreen> {
                      mainAxisSpacing: 10.0, // Vertical spacing
                      crossAxisSpacing: 10.0, // Horizontal spacing
                      children: List.generate(_socketService.orders.length, (int index) {
-                       // Check index bounds before accessing order
-                       if (index < _socketService.orders.length) {
-                          final order = _socketService.orders[index];
-                          return _buildOrderCard(context, order, itemStrikeThroughColor, itemBodyTextColor, headerTextColor);
-                       } else {
-                          // Handle potential index out of bounds during rebuilds
-                          log("Error: Attempted to build card for index $index, but orders length is ${_socketService.orders.length}");
-                          return const SizedBox.shrink(); // Return empty widget
+                       if (index >= _socketService.orders.length) {
+                          log("Warning: Index $index out of bounds for orders list (length: ${_socketService.orders.length}).");
+                          return const SizedBox.shrink(); // Safety net
                        }
+                       final order = _socketService.orders[index];
+                       final allItemsDelivered = (_deliveredItemsCount[order.id] ?? 0) == order.items.length;
+
+                       return _buildOrderCard(
+                         context,
+                         order,
+                         allItemsDelivered, // Pass the flag
+                         headerTextColor,
+                         itemStrikeThroughColor ?? Colors.grey, // Use fallback
+                         itemBodyTextColor,
+                         currentOrderGreen,
+                         currentOrderYellow,
+                         currentOrderRed,
+                       );
                      }),
                    ),
                ),
@@ -297,132 +362,147 @@ class _KitchenScreenState extends State<KitchenScreen> {
     );
   }
 
-  // Updated buildOrderCard to include timer logic, refined UI, and removed addons
-  Widget _buildOrderCard(BuildContext context, Order order, Color? strikeThroughColor, Color bodyTextColor, Color headerTextColor) {
+  // Modify _buildOrderCard to accept allItemsDelivered flag and add button
+  Widget _buildOrderCard(
+      BuildContext context,
+      Order order,
+      bool allItemsDelivered, // Flag to indicate if all items are done
+      Color headerTextColor,
+      Color itemStrikeThroughColor,
+      Color itemBodyTextColor, // Color for non-strike through text
+      Color colorGreen,
+      Color colorYellow,
+      Color colorRed
+    ) {
+    final elapsed = DateTime.now().difference(order.createdAt);
+    final formattedTime = _formatDuration(elapsed);
+    final headerColor = _getHeaderColorForElapsedTime(elapsed);
 
-    // --- Calculate time and color ---
-    // Ensure createdAt is in local time for accurate difference calculation
-    final Duration elapsed = DateTime.now().difference(order.createdAt.toLocal());
-    final String elapsedTimeString = _formatDuration(elapsed);
-    final Color currentHeaderColor = _getHeaderColorForElapsedTime(elapsed);
-    // -----------------------------
-
-    // Text Styles defined locally for clarity
-    final headerTextStyle = Theme.of(context).textTheme.bodyLarge!.copyWith( // bodyLarge is white
-                            color: headerTextColor, // Explicitly set white
-                            fontSize: 14,
-                            fontWeight: FontWeight.bold,
-                          );
+    final headerTextStyle = Theme.of(context).textTheme.bodyLarge!.copyWith(
+          color: headerTextColor, fontSize: 14, fontWeight: FontWeight.bold);
     final headerSubTextStyle = Theme.of(context).textTheme.bodyLarge!.copyWith(
-                            color: headerTextColor.withOpacity(0.85), // Slightly dimmed white
-                            fontSize: 10,
-                          );
-     final headerTimeStyle = Theme.of(context).textTheme.bodyLarge!.copyWith(
-                            color: headerTextColor, // Explicitly set white
-                            fontSize: 16, // Larger font for time
-                            fontWeight: FontWeight.bold,
-                          );
-     final itemTextStyle = Theme.of(context).textTheme.titleMedium!.copyWith( // titleMedium is black/bold
-                          fontWeight: FontWeight.normal, // Make item name normal weight like image
-                          fontSize: 14, // Adjust font size
-                          color: bodyTextColor, // Use dark text color
-                         );
-     final itemQuantityStyle = itemTextStyle.copyWith(fontWeight: FontWeight.bold); // Bold quantity
-     final instructionTextStyle = Theme.of(context).textTheme.bodyMedium!.copyWith( // Default bodyMedium
-                          color: bodyTextColor.withOpacity(0.8), // Slightly dimmed body text
-                          fontWeight: FontWeight.w300, // Lighter weight for instructions
-                          fontSize: 12 // Smaller font for instructions
-                        );
+          color: headerTextColor.withOpacity(0.85), fontSize: 10);
+    final itemTextStyle = Theme.of(context).textTheme.titleMedium!.copyWith(
+          fontWeight: FontWeight.normal, fontSize: 14, color: itemBodyTextColor); // Use body color
+    final itemStrikeStyle = itemTextStyle.copyWith(
+          decoration: TextDecoration.lineThrough, color: itemStrikeThroughColor);
+    final itemQuantityStyle = itemTextStyle.copyWith(fontWeight: FontWeight.bold);
+    final itemQuantityStrikeStyle = itemQuantityStyle.copyWith(
+          decoration: TextDecoration.lineThrough, color: itemStrikeThroughColor);
+    final instructionTextStyle = Theme.of(context).textTheme.bodyMedium!.copyWith(
+          color: itemBodyTextColor.withOpacity(0.8), fontWeight: FontWeight.w300, fontSize: 12);
+     final instructionStrikeStyle = instructionTextStyle.copyWith(
+          decoration: TextDecoration.lineThrough, color: itemStrikeThroughColor.withOpacity(0.8));
+
+    final bool isUpdating = _updatingOrders.contains(order.id); // Check if updating
 
     return ClipPath(
-      clipper: CustomClipPath(), // Use the jagged edge clipper
-      child: FadedScaleAnimation(
+      clipper: CustomClipPath(), // Use the custom clipper
+      child: FadedScaleAnimation( // Keep the animation
         child: Container(
-          color: Theme.of(context).scaffoldBackgroundColor, // White background for the main card content
+          color: Theme.of(context).scaffoldBackgroundColor, // Card background
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // --- Card Header ---
               Container(
-                color: currentHeaderColor, // Apply time-based background color
-                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0), // Consistent padding
+                color: headerColor, // Use dynamic header color
+                padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text( order.orderType, style: headerTextStyle, ),
-                        const SizedBox(height: 4),
-                        Text( order.orderNumber, style: headerSubTextStyle, )
-                      ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(order.orderType, style: headerTextStyle, overflow: TextOverflow.ellipsis),
+                          const SizedBox(height: 4),
+                          Text(order.orderNumber, style: headerSubTextStyle),
+                        ],
+                      ),
                     ),
-                    Text( elapsedTimeString, style: headerTimeStyle, ),
+                    Flexible(
+                      child: Text(formattedTime, style: headerTextStyle.copyWith(fontSize: 18)),
+                    ),
                   ],
                 ),
               ),
-              // --- Card Body (Item List) ---
-               ListView.builder(
-                  physics: const NeverScrollableScrollPhysics(), // Disable nested scrolling
-                  shrinkWrap: true, // Fit content
-                  padding: const EdgeInsets.symmetric(vertical: 4.0), // Padding for the list
+              ListView.builder(
+                  physics: const NeverScrollableScrollPhysics(),
+                  shrinkWrap: true,
+                  padding: const EdgeInsets.symmetric(vertical: 4.0),
                   itemCount: order.items.length,
                   itemBuilder: (context, itemIndex) {
-                    // Check item index bounds
-                    if (itemIndex >= order.items.length) return const SizedBox.shrink();
+                    if (itemIndex >= order.items.length) return const SizedBox.shrink(); // Safety check
                     final item = order.items[itemIndex];
 
-                    // Determine text color and decoration based on delivery status
-                    final currentItemTextStyle = itemTextStyle.copyWith(
-                       color: item.isDelivered ? strikeThroughColor : bodyTextColor,
-                       decoration: item.isDelivered ? TextDecoration.lineThrough : TextDecoration.none
-                    );
-                     final currentItemQuantityStyle = itemQuantityStyle.copyWith(
-                       color: item.isDelivered ? strikeThroughColor : bodyTextColor,
-                       decoration: item.isDelivered ? TextDecoration.lineThrough : TextDecoration.none
-                    );
-                     final currentInstructionTextStyle = instructionTextStyle.copyWith(
-                       color: item.isDelivered ? strikeThroughColor : instructionTextStyle.color,
-                       decoration: item.isDelivered ? TextDecoration.lineThrough : TextDecoration.none
-                    );
-
-                    return InkWell( // Make item row tappable
-                       onTap: () {
-                          if (!item.isDelivered) { // Only allow marking undelivered items
-                             _markItemDelivered(order.id, item.productId, itemIndex);
-                          }
-                       },
-                       child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                          child: Column(
-                             crossAxisAlignment: CrossAxisAlignment.start,
-                             children: [
-                                Row(
-                                   crossAxisAlignment: CrossAxisAlignment.start,
-                                   children: [
-                                      Text('${item.quantity} ', style: currentItemQuantityStyle),
-                                      Expanded(child: Text(item.name, style: currentItemTextStyle)),
-                                   ],
+                    return InkWell( // Make item tappable
+                      onTap: () => _markItemDelivered(order.id, item.productId, itemIndex),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    '${item.quantity} ',
+                                    style: item.isDelivered ? itemQuantityStrikeStyle : itemQuantityStyle
+                                  ),
                                 ),
-                                // --- REMOVED ADDONS DISPLAY ---
-
-                                // Display special instructions if they exist
-                                if (item.specialInstructions.isNotEmpty)
-                                   Padding(
-                                      padding: const EdgeInsets.only(left: 10.0, top: 4.0), // Indent instructions
-                                      child: Text(
-                                         'Note: ${item.specialInstructions}',
-                                         style: currentInstructionTextStyle.copyWith(fontStyle: FontStyle.italic),
-                                      ),
-                                   ),
-                             ],
-                          ),
-                       ),
+                                Expanded(
+                                  child: Text(
+                                    item.name,
+                                    style: item.isDelivered ? itemStrikeStyle : itemTextStyle
+                                  )
+                                ),
+                                if (item.isDelivered) // Show checkmark
+                                   Icon(Icons.check_circle, color: colorGreen, size: 18)
+                              ],
+                            ),
+                            if (item.specialInstructions.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(left: 20.0, top: 4.0), // Indent instructions slightly
+                                child: Text(
+                                  'Note: ${item.specialInstructions}',
+                                  style: item.isDelivered ? instructionStrikeStyle : instructionTextStyle,
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
                     );
-                  }),
-            ],
+                  }
+                ),
+                 // --- Add the "Mark as Ready" button ---
+                 if (allItemsDelivered) // Show button only when all items are delivered
+                   Padding(
+                     padding: const EdgeInsets.all(12.0),
+                     child: Center(
+                       child: ElevatedButton(
+                         style: ElevatedButton.styleFrom(
+                           backgroundColor: theme_colors.orderGreen, // Use a distinct color
+                           padding: EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                         ),
+                         onPressed: isUpdating ? null : () => _markOrderReadyForPickup(order.id), // Disable if updating
+                         child: isUpdating
+                             ? SizedBox(
+                                 height: 20,
+                                 width: 20,
+                                 child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                               )
+                             : Text(
+                                 'Mark as Ready',
+                                 style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold),
+                               ),
+                       ),
+                     ),
+                   ),
+                 // ------------------------------------
+          ],
           ),
         ),
         fadeDuration: const Duration(milliseconds: 400),

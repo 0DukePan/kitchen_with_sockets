@@ -47,6 +47,13 @@ class SocketService with ChangeNotifier {
         // Confirmation only, no order data expected here anymore
       });
 
+      // --- Add listener for order status updates ---
+      _socket!.on('order_status_updated', (data) {
+        debugPrint('Order status update received: $data');
+        _handleOrderStatusUpdate(data);
+      });
+      // --------------------------------------------
+
       _socket!.onDisconnect((_) {
         debugPrint('Kitchen disconnected from socket server');
         // TODO: Implement reconnection logic if needed
@@ -126,6 +133,44 @@ class SocketService with ChangeNotifier {
       debugPrint('Error handling initial orders: $e\nReceived data: $data');
     }
   }
+
+  // --- Add handler for order status updates ---
+  void _handleOrderStatusUpdate(dynamic data) {
+    try {
+      if (data is Map<String, dynamic>) {
+        final String? orderId = data['orderId']?.toString();
+        final String? newStatus = data['status']?.toString();
+
+        if (orderId != null && newStatus != null) {
+          // Find the index of the order to update/remove
+          final index = _orders.indexWhere((order) => order.id == orderId);
+
+          if (index != -1) {
+            // If the new status means it should be removed from the active list
+            if (newStatus == 'ready_for_pickup' || newStatus == 'cancelled' || newStatus == 'delivered' || newStatus == 'completed') { // Adjust statuses as needed
+              _orders.removeAt(index);
+              notifyListeners();
+              debugPrint('Order $orderId removed from active list due to status change to $newStatus.');
+            } else {
+              // Optionally update the status in the existing order object if needed
+              // _orders[index] = _orders[index].copyWith(status: newStatus); // Assuming Order model has copyWith
+              // notifyListeners();
+              debugPrint('Order $orderId status updated to $newStatus (still active).');
+            }
+          } else {
+             debugPrint('Received status update for unknown order ID: $orderId');
+          }
+        } else {
+           debugPrint('Received invalid order status update data format.');
+        }
+      } else {
+        debugPrint('Received order status update data is not a Map.');
+      }
+    } catch (e) {
+      debugPrint('Error handling order status update: $e\nReceived data: $data');
+    }
+  }
+  // -------------------------------------------
 
   // Method to clear all orders (e.g., for testing or specific UI actions)
   void clearOrders() {

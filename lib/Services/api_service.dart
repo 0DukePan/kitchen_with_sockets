@@ -57,5 +57,37 @@ class ApiService {
     }
   }
 
+  // Method to update the status of an order
+  Future<bool> updateOrderStatus(String orderId, String newStatus) async {
+    final Uri uri = Uri.parse('$_baseUrl/orders/$orderId/status');
+    log('Updating order $orderId status to $newStatus via: $uri');
+
+    try {
+      final response = await http.put(
+        uri,
+        headers: {
+          'Content-Type': 'application/json',
+          // TODO: Add authentication headers if needed
+        },
+        body: json.encode({'status': newStatus}),
+      );
+
+      if (response.statusCode == 200) {
+        log('Successfully updated order $orderId status to $newStatus.');
+        // Optionally parse response body if backend sends back updated order details
+        // final Map<String, dynamic> responseData = json.decode(response.body);
+        return true;
+      } else {
+        log('Error updating order $orderId status: Status code ${response.statusCode}, Body: ${response.body}');
+        // Consider throwing a more specific exception based on status code
+        throw Exception('Failed to update order status (Status code: ${response.statusCode})');
+      }
+    } catch (e) {
+      log('Network or parsing error updating order status: $e');
+      // Rethrow the exception to be handled by the caller
+      throw Exception('Failed to update order status: $e');
+    }
+  }
+
   // TODO: Add other API methods if needed (e.g., update order status)
 } 
